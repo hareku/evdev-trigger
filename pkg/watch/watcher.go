@@ -57,8 +57,7 @@ func (w *watcher) Run(ctx context.Context) error {
 
 	eg.Go(func() error {
 		for {
-			err := w.listen(ctx)
-			if err != nil {
+			if err := w.listen(ctx); err != nil {
 				if errors.Is(err, errDeviceDisconnected) {
 					if err := w.waitConnect(ctx); err != nil {
 						return err
