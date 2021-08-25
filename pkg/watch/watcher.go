@@ -76,6 +76,7 @@ func (w *watcher) Run(ctx context.Context) error {
 			return nil
 		}
 		w.logger.Errorf("%+v", err)
+		return err
 	}
 
 	return nil
