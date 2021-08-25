@@ -156,7 +156,7 @@ func (w *watcher) listen(ctx context.Context) error {
 				w.logger.Debugf("Event type is not EV_KEY(%d), got %d", evdev.EV_KEY, ev.Type)
 				continue
 			}
-			if ev.Value == 1 { // stil pressing
+			if ev.Value == 1 { // key is still pressed
 				continue
 			}
 
