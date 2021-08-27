@@ -9,9 +9,13 @@ import (
 )
 
 type Config struct {
-	Phys     string             `yaml:"phys"`
-	Interval time.Duration      `yaml:"interval"`
-	Triggers map[uint16]Command `yaml:"triggers"`
+	Phys     string                   `yaml:"phys"`
+	Triggers map[uint16]CommandConfig `yaml:"triggers"`
+}
+
+type CommandConfig struct {
+	Command  Command
+	Interval time.Duration `yaml:"interval"`
 }
 
 type Command []string

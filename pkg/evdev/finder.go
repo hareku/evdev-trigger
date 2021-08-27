@@ -7,6 +7,8 @@ import (
 	evdev "github.com/gvalkov/golang-evdev"
 )
 
+//go:generate mockgen -source=${GOFILE} -destination=./${GOPACKAGE}mock/mock_${GOFILE} -package=${GOPACKAGE}mock
+
 var ErrDeviceNotFound = errors.New("device not found")
 
 type Finder interface {

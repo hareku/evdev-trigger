@@ -2,6 +2,8 @@ package evdev
 
 import evdev "github.com/gvalkov/golang-evdev"
 
+//go:generate mockgen -source=${GOFILE} -destination=./${GOPACKAGE}mock/mock_${GOFILE} -package=${GOPACKAGE}mock
+
 type Device interface {
 	Read() (*InputEvent, error)
 }

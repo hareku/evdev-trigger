@@ -3,16 +3,10 @@ package watch
 import (
 	"context"
 	"errors"
-	"os/exec"
-	"strings"
 
 	"sync"
-	"time"
 
-	"github.com/hareku/evdev-trigger/pkg/config"
 	"github.com/hareku/evdev-trigger/pkg/evdev"
-	"github.com/hareku/evdev-trigger/pkg/notify"
-	"golang.org/x/sync/errgroup"
 )
 
 type Watcher interface {
@@ -20,65 +14,59 @@ type Watcher interface {
 }
 
 type NewWatcherInput struct {
-	Conf     *config.Config
-	Logger   Logger
-	Notifier notify.Notifier
-	Finder   evdev.Finder
+	Phys          string
+	Logger        Logger
+	Finder        evdev.Finder
+	ReconnectCond *sync.Cond
+	Handler       Handler
 }
 
 func NewWatcher(in NewWatcherInput) Watcher {
 	return &watcher{
-		c:        in.Conf,
-		logger:   in.Logger,
-		notifier: in.Notifier,
-		finder:   in.Finder,
-
-		cnd: sync.NewCond(new(sync.Mutex)),
+		phys:    in.Phys,
+		logger:  in.Logger,
+		finder:  in.Finder,
+		handler: in.Handler,
+		cnd:     in.ReconnectCond,
 	}
 }
 
 type watcher struct {
-	c      *config.Config
-	logger Logger
-
-	notifier notify.Notifier
-	finder   evdev.Finder
-
-	cnd  *sync.Cond
-	d    evdev.Device
-	prev time.Time
+	phys    string
+	logger  Logger
+	finder  evdev.Finder
+	cnd     *sync.Cond
+	handler Handler
+	d       evdev.Device
 }
 
 func (w *watcher) Run(ctx context.Context) error {
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		return w.notifier.Subscribe(ctx, w.cnd)
-	})
-
-	eg.Go(func() error {
-		for {
-			if err := w.listen(ctx); err != nil {
-				if errors.Is(err, errDeviceDisconnected) {
-					if err := w.waitConnect(ctx); err != nil {
-						return err
-					}
-					continue
-				}
-				return err
-			}
-		}
-	})
-
-	if err := eg.Wait(); err != nil {
+	if err := w.run(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			w.logger.Infof("Terminated")
-			return nil
+			return err
 		}
+
 		w.logger.Errorf("%+v", err)
 		return err
 	}
 
 	return nil
+}
+
+func (w *watcher) run(ctx context.Context) error {
+	for {
+		err := w.listen(ctx)
+		if err != nil {
+			if errors.Is(err, errDeviceDisconnected) {
+				if err := w.waitConnect(ctx); err != nil {
+					return err
+				}
+				continue
+			}
+			return err
+		}
+	}
 }
 
 func (w *watcher) waitConnect(ctx context.Context) error {
@@ -90,19 +78,19 @@ func (w *watcher) waitConnect(ctx context.Context) error {
 		if err != nil && !errors.Is(err, evdev.ErrDeviceNotFound) {
 			return err
 		}
-		w.logger.Debugf("Device not found (%s), waiting /dev/input events", w.c.Phys)
+		w.logger.Debugf("Device not found (%s), waiting device connection.", w.phys)
 		w.cnd.Wait()
 		ok, err = w.connect(ctx)
 	}
 
-	w.logger.Debugf("Connected to %s", w.c.Phys)
+	w.logger.Debugf("Connected to %s", w.phys)
 	return nil
 }
 
 func (w *watcher) connect(ctx context.Context) (bool, error) {
-	w.logger.Debugf("Trying to connect %s", w.c.Phys)
+	w.logger.Debugf("Trying to connect %s", w.phys)
 
-	device, err := w.finder.Find(w.c.Phys)
+	device, err := w.finder.Find(w.phys)
 	if err != nil {
 		return false, err
 	}
@@ -150,49 +138,7 @@ func (w *watcher) listen(ctx context.Context) error {
 			if read.err != nil {
 				return errDeviceDisconnected
 			}
-			ev := read.ev
-
-			if ev.Type != evdev.EV_KEY {
-				w.logger.Debugf("Event type is not EV_KEY(%d), got %d", evdev.EV_KEY, ev.Type)
-				continue
-			}
-			if ev.Value == 1 { // key is still pressed
-				continue
-			}
-
-			cmd, ok := w.c.Triggers[ev.Code]
-			if !ok {
-				w.logger.Debugf("Trigger nof found for code(%d)", ev.Code)
-				continue
-			}
-			w.exec(ctx, cmd)
+			w.handler.Do(ctx, read.ev)
 		}
 	}
-}
-
-func (w *watcher) exec(ctx context.Context, cmd config.Command) {
-	if time.Since(w.prev) < w.c.Interval {
-		w.logger.Debugf("Skipped for interval, takes %v until the next run", w.c.Interval-time.Since(w.prev))
-		return
-	}
-	w.prev = time.Now()
-
-	var ecmd *exec.Cmd
-	if len(cmd) == 1 {
-		ecmd = exec.CommandContext(ctx, cmd[0])
-	} else {
-		ecmd = exec.CommandContext(ctx, cmd[0], cmd[1:]...)
-	}
-
-	b, err := ecmd.Output()
-	cmdStr := strings.Join(cmd, " ")
-	if err != nil {
-		w.logger.Errorf("Command %q failed: %s", cmdStr, err)
-		return
-	}
-	if len(b) > 0 {
-		w.logger.Infof("Command %q succeeded: %s", cmdStr, string(b))
-		return
-	}
-	w.logger.Infof("Command %q succeeded, no output", cmdStr)
 }

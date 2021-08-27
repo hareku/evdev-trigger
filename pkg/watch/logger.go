@@ -2,8 +2,8 @@ package watch
 
 import (
 	"fmt"
+	"io"
 	"log"
-	"os"
 )
 
 type Logger interface {
@@ -12,9 +12,9 @@ type Logger interface {
 	Errorf(format string, args ...interface{})
 }
 
-func NewStdLogger(debug bool) Logger {
+func NewLogger(w io.Writer, debug bool) Logger {
 	return &stdLogger{
-		l:     log.New(os.Stdout, "", log.LstdFlags),
+		l:     log.New(w, "", log.LstdFlags),
 		debug: debug,
 	}
 }
